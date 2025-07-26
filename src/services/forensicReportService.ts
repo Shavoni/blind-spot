@@ -700,8 +700,35 @@ class ForensicReportService {
   }
 
   private checkFeetOrientation(analysisData: AnalysisResult): boolean {
-    // Check if feet/body orientation signals are positive
-    return true; // Simplified for now
+    // Check if feet are visible in the analysis data
+    
+    // Check for body-related indicators in signals
+    const hasBodySignals = analysisData.signals.posture?.indicators.some(indicator => 
+      indicator.toLowerCase().includes('full-body') ||
+      indicator.toLowerCase().includes('feet') ||
+      indicator.toLowerCase().includes('stance') ||
+      indicator.toLowerCase().includes('lower-body')
+    ) || false;
+
+    // Check timeline for body/feet related events
+    const hasBodyEvents = analysisData.timeline.some(event => 
+      event.event.toLowerCase().includes('full body') ||
+      event.event.toLowerCase().includes('feet') ||
+      event.event.toLowerCase().includes('stance') ||
+      event.event.toLowerCase().includes('lower body')
+    );
+
+    // Check detailed timeline for body language cues
+    const hasBodyCues = analysisData.detailedTimeline?.some(item =>
+      item.bodyLanguageCues?.some(cue => 
+        cue.toLowerCase().includes('feet') ||
+        cue.toLowerCase().includes('stance') ||
+        cue.toLowerCase().includes('full body')
+      )
+    ) || false;
+
+    // Only return true if we have actual evidence of feet/full body visibility
+    return hasBodySignals || hasBodyEvents || hasBodyCues;
   }
 
   private checkClosingBehaviors(events: any[]): boolean {

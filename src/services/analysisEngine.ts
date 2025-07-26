@@ -222,25 +222,67 @@ class AnalysisEngine {
             indicators: posturalData.indicators,
             apiSource: 'google-video-intelligence'
           };
-          signals.gestures = {
-            confidence: posturalData.confidence * 0.9,
-            indicators: ['hand_movements', 'gesture_timing'],
-            apiSource: 'google-video-intelligence'
-          };
-          timeline.push({ time: this.formatTime(4.2), event: 'Forward lean detected with micro-nodding', confidence: posturalData.confidence, apiCall: 'google-video-analysis' });
+          
+          // Perform actual gesture analysis with body detection
+          let gestureData;
+          if (googleVisionService.connected) {
+            try {
+              gestureData = await googleVisionService.analyzeGestures(mediaData);
+              signals.gestures = {
+                confidence: gestureData.confidence,
+                indicators: gestureData.indicators,
+                apiSource: 'google-vision-api',
+                hasFullBody: gestureData.hasFullBody
+              };
+              
+              // Add body visibility info to posture signals
+              if (gestureData.hasFullBody) {
+                signals.posture.indicators.push('full-body-visible');
+              }
+              
+              // Update timeline based on body visibility
+              const bodyEvent = gestureData.hasFullBody 
+                ? 'Full body posture detected with gesture analysis'
+                : 'Upper body posture and gestures analyzed';
+              timeline.push({ 
+                time: this.formatTime(4.2), 
+                event: bodyEvent, 
+                confidence: gestureData.confidence, 
+                apiCall: 'google-vision-gesture-analysis' 
+              });
+            } catch (error) {
+              console.warn('⚠️ Gesture analysis failed, using fallback');
+              signals.gestures = {
+                confidence: posturalData.confidence * 0.9,
+                indicators: ['hand_movements', 'gesture_timing'],
+                apiSource: 'google-video-intelligence',
+                hasFullBody: false
+              };
+            }
+          } else {
+            signals.gestures = {
+              confidence: posturalData.confidence * 0.9,
+              indicators: ['hand_movements', 'gesture_timing'],
+              apiSource: 'google-video-intelligence',
+              hasFullBody: false
+            };
+          }
+          
           this.addDetailedTimelineEvent(timeline, {
             time: this.formatTime(4.2),
             event: 'Postural shift analysis',
             confidence: posturalData.confidence,
             apiCall: 'google-video-analysis',
             phase: 'engagement',
-            bodyLanguageCues: ['forward_lean', 'shoulder_alignment', 'head_tilt'],
+            bodyLanguageCues: signals.gestures.hasFullBody 
+              ? ['forward_lean', 'shoulder_alignment', 'head_tilt', 'feet_position']
+              : ['forward_lean', 'shoulder_alignment', 'head_tilt'],
             contextualNotes: 'Subject shows increased engagement through body positioning'
           });
         } catch (error) {
           console.warn('⚠️ Postural analysis failed, using fallback');
           signals.posture = { confidence: 0.91, indicators: ['body-alignment', 'gesture-frequency'], apiSource: 'fallback' };
-          signals.gestures = { confidence: 0.88, indicators: ['hand_positions', 'gesture_timing'], apiSource: 'fallback' };
+          signals.gestures = { confidence: 0.88, indicators: ['hand_positions', 'gesture_timing'], apiSource: 'fallback', hasFullBody: false };
         }
       }
 

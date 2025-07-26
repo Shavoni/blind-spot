@@ -108,11 +108,23 @@ class GoogleVisionService {
       }
 
       // Add relevant labels as indicators
-      labels.forEach((label: { description: string }) => {
-        if (label.description.toLowerCase().includes('face') || 
-            label.description.toLowerCase().includes('person') ||
-            label.description.toLowerCase().includes('expression')) {
-          indicators.push(label.description.toLowerCase().replace(/ /g, '-'));
+      labels.forEach((label: { description: string; score?: number }) => {
+        const labelLower = label.description.toLowerCase();
+        if (labelLower.includes('face') || 
+            labelLower.includes('person') ||
+            labelLower.includes('expression')) {
+          indicators.push(labelLower.replace(/ /g, '-'));
+        }
+        
+        // Check for full body visibility indicators
+        if (labelLower.includes('standing') ||
+            labelLower.includes('sitting') ||
+            labelLower.includes('full body') ||
+            labelLower.includes('whole body') ||
+            labelLower.includes('feet') ||
+            labelLower.includes('shoes') ||
+            labelLower.includes('legs')) {
+          indicators.push(`full-body-${labelLower.replace(/ /g, '-')}`);
         }
       });
 
@@ -150,28 +162,121 @@ class GoogleVisionService {
     return map[likelihood] || 0.5;
   }
 
-  async analyzeGestures(videoData: Blob): Promise<{ indicators: string[]; confidence: number; gestures: any[] }> {
+  private async blobToBase64(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async analyzeGestures(videoData: Blob): Promise<{ indicators: string[]; confidence: number; gestures: any[]; hasFullBody?: boolean }> {
     if (!this.isInitialized) {
       throw new Error('Google Vision not initialized');
     }
 
     try {
-      // Simulate gesture analysis
-      const mockAnalysis = {
-        indicators: ['body-alignment', 'gesture-frequency', 'postural-shifts'],
-        confidence: 0.91,
-        gestures: [
-          { type: 'hand_gesture', confidence: 0.8, timestamp: 1.5 },
-          { type: 'head_movement', confidence: 0.9, timestamp: 3.2 },
-          { type: 'posture_change', confidence: 0.7, timestamp: 5.1 }
-        ]
+      // Convert video blob to image for analysis
+      const base64Data = await this.blobToBase64(videoData);
+      const imageContent = base64Data.split(',')[1];
+      
+      const url = `https://vision.googleapis.com/v1/images:annotate?key=${CONFIG.apis.google}`;
+      const requestBody = {
+        requests: [{
+          image: { content: imageContent },
+          features: [
+            { type: 'LABEL_DETECTION', maxResults: 20 },
+            { type: 'OBJECT_LOCALIZATION', maxResults: 10 }
+          ]
+        }]
       };
 
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Google Vision API error: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const labels = data.responses[0]?.labelAnnotations || [];
+      const objects = data.responses[0]?.localizedObjectAnnotations || [];
+      
+      const indicators: string[] = [];
+      const gestures: any[] = [];
+      let hasFullBody = false;
+      
+      // Check for body-related labels
+      labels.forEach((label: { description: string; score: number }) => {
+        const labelLower = label.description.toLowerCase();
+        
+        // Check for full body indicators
+        if (labelLower.includes('standing') || labelLower.includes('sitting') ||
+            labelLower.includes('full body') || labelLower.includes('whole body')) {
+          hasFullBody = true;
+          indicators.push('full-body-visible');
+        }
+        
+        // Check for partial body indicators
+        if (labelLower.includes('torso') || labelLower.includes('upper body')) {
+          indicators.push('upper-body-visible');
+        }
+        
+        if (labelLower.includes('feet') || labelLower.includes('legs') || 
+            labelLower.includes('shoes') || labelLower.includes('stance')) {
+          hasFullBody = true;
+          indicators.push('lower-body-visible');
+        }
+        
+        // Gesture indicators
+        if (labelLower.includes('gesture') || labelLower.includes('pointing') ||
+            labelLower.includes('waving') || labelLower.includes('hand')) {
+          gestures.push({ type: labelLower.replace(/ /g, '_'), confidence: label.score || 0.7, timestamp: 0 });
+        }
+      });
+      
+      // Check objects for person detection
+      objects.forEach((obj: { name: string; score: number; boundingPoly: any }) => {
+        if (obj.name.toLowerCase() === 'person') {
+          // Check if bounding box covers full height (indicating full body)
+          const vertices = obj.boundingPoly?.normalizedVertices || [];
+          if (vertices.length >= 4) {
+            const height = Math.abs((vertices[2]?.y || 0) - (vertices[0]?.y || 0));
+            if (height > 0.7) { // If person takes up >70% of frame height
+              hasFullBody = true;
+              indicators.push('full-person-detected');
+            }
+          }
+        }
+      });
+      
+      // Add default indicators if none found
+      if (indicators.length === 0) {
+        indicators.push('partial-body-view');
+      }
+
       console.log('👥 Google Vision gesture analysis completed');
-      return mockAnalysis;
+      return {
+        indicators,
+        confidence: hasFullBody ? 0.85 : 0.65,
+        gestures: gestures.length > 0 ? gestures : [
+          { type: 'minimal_movement', confidence: 0.5, timestamp: 0 }
+        ],
+        hasFullBody
+      };
     } catch (error) {
       console.error('❌ Google Vision gesture analysis failed:', error);
-      throw error;
+      // Return conservative defaults on error
+      return {
+        indicators: ['partial-body-view'],
+        confidence: 0.5,
+        gestures: [{ type: 'analysis_failed', confidence: 0.3, timestamp: 0 }],
+        hasFullBody: false
+      };
     }
   }
 
