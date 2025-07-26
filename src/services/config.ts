@@ -22,11 +22,11 @@ export const CONFIG = {
 
 export const isConfigValid = () => {
   return {
-    supabase: CONFIG.supabase.url && CONFIG.supabase.anonKey,
-    github: CONFIG.github.token,
-    openai: CONFIG.apis.openai,
-    anthropic: CONFIG.apis.anthropic,
-    google: CONFIG.apis.google && CONFIG.apis.googleProjectId,
+    supabase: !!(CONFIG.supabase.url && CONFIG.supabase.anonKey && CONFIG.supabase.url !== 'your-supabase-project-url'),
+    github: !!(CONFIG.github.token && CONFIG.github.token !== 'your-github-personal-access-token'),
+    openai: !!(CONFIG.apis.openai && CONFIG.apis.openai !== 'your-openai-api-key' && CONFIG.apis.openai.startsWith('sk-')),
+    anthropic: !!(CONFIG.apis.anthropic && CONFIG.apis.anthropic !== 'your-anthropic-api-key' && CONFIG.apis.anthropic !== 'your_anthropic_api_key'),
+    google: !!(CONFIG.apis.google && CONFIG.apis.google !== 'your-google-api-key' && CONFIG.apis.googleProjectId && CONFIG.apis.googleProjectId !== 'your-google-cloud-project-id'),
     claudeCode: true // Always available locally
   };
 };

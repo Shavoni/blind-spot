@@ -7,7 +7,10 @@ import { forensicReportService, ForensicReport as ForensicReportType } from './s
 import { exportService } from './services/exportService';
 import ForensicReport from './components/ForensicReport';
 import CohesiveReport from './components/CohesiveReport';
-import { enhanceAnalysisWithDemoData } from './demo/forensicReportDemo';
+import { validateEnvironmentVariables } from './utils/envValidation';
+import CameraTest from './components/CameraTest';
+import EnvDebug from './components/EnvDebug';
+// Demo data enhancement removed to use real API analysis only
 
 
 const Blindspots = () => {
@@ -16,7 +19,6 @@ const Blindspots = () => {
   const [analysisData, setAnalysisData] = useState<AnalysisResult | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
-  const [isSavingReport, setIsSavingReport] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
@@ -39,6 +41,7 @@ const Blindspots = () => {
   const [showForensicReport, setShowForensicReport] = useState(false);
   const [forensicReport, setForensicReport] = useState<ForensicReportType | null>(null);
   const [culturalContext, setCulturalContext] = useState('western');
+  const [showCameraTest, setShowCameraTest] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -138,13 +141,15 @@ const Blindspots = () => {
   // Initialize all connections
   useEffect(() => {
     initializeConnections();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Initialize camera when switching to live mode
   useEffect(() => {
     const initializeCamera = async () => {
-      if (activeMode === 'live' && !cameraStream && !isAnalyzing) {
+      if (activeMode === 'live' && !cameraStream) {
         try {
+          console.log('🎥 Initializing camera for live mode...');
           const cameraInitialized = await mediaService.initializeCamera();
           if (cameraInitialized) {
             const stream = mediaService.getStream();
@@ -153,10 +158,12 @@ const Blindspots = () => {
             // Set video element source
             if (videoRef.current && stream) {
               videoRef.current.srcObject = stream;
+              console.log('✅ Camera stream set to video element');
             }
           }
         } catch (error) {
-          console.warn('Camera preview initialization failed:', error);
+          console.error('❌ Camera preview initialization failed:', error);
+          showError('Failed to access camera. Please check permissions.');
         }
       } else if (activeMode === 'upload' && cameraStream) {
         // Clean up camera when switching to upload mode
@@ -169,7 +176,8 @@ const Blindspots = () => {
     };
 
     initializeCamera();
-  }, [activeMode, cameraStream, isAnalyzing]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMode]); // Intentionally omitting cameraStream to prevent infinite loops
 
   // Cleanup effect for component unmount
   useEffect(() => {
@@ -228,6 +236,16 @@ const Blindspots = () => {
     try {
       setIsInitializing(true);
       console.log('🚀 Initializing Blindspots connections...');
+      
+      // Validate environment variables first
+      const envValidation = validateEnvironmentVariables();
+      if (!envValidation.isValid) {
+        throw new Error(`Missing required environment variables: ${envValidation.missing.join(', ')}`);
+      }
+      
+      // Show warnings if any
+      envValidation.warnings.forEach(warning => console.warn(warning));
+      
       const serviceStatus = await analysisEngine.initializeServices();
       
       // Update connection states
@@ -339,16 +357,7 @@ const Blindspots = () => {
     setIsAnalyzing(false);
     setUploadedFilePreview(null);
     setUploadedFileType(null);
-    
-    // Clean up camera if not analyzing
-    if (!isAnalyzing && activeMode === 'live') {
-      setCameraStream(null);
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
-      }
-      mediaService.cleanup();
-    }
-    // Don't clear camera stream unless switching modes
+    // Don't clear camera stream - keep it running for live mode
   };
 
   // Handle text-based analysis
@@ -380,8 +389,8 @@ const Blindspots = () => {
     try {
       console.log('📊 Generating forensic report...');
       
-      // Enhance analysis data with demo data for richer reports
-      const enhancedData = enhanceAnalysisWithDemoData(analysisData);
+      // Use actual analysis data without demo enhancement
+      const enhancedData = analysisData;
       
       const subjects = contextPreset === 'presentation' ? [
         {
@@ -426,7 +435,7 @@ const Blindspots = () => {
       console.log(`📤 Exporting analysis data as ${format.toUpperCase()}...`);
       
       // Generate forensic report first if not already done
-      const enhancedData = enhanceAnalysisWithDemoData(analysisData);
+      const enhancedData = analysisData;
       const subjects = contextPreset === 'presentation' ? [
         {
           id: 'pitcher',
@@ -492,28 +501,31 @@ const Blindspots = () => {
 
   const LoadingSpinner = ({ text = "Loading..." }: { text?: string }) => (
     <div className="flex flex-col items-center justify-center p-8">
-      <div className="w-12 h-12 border-4 border-cyan-600 border-t-transparent rounded-full animate-spin mb-4" />
-      <p className="text-gray-400 text-sm">{text}</p>
+      <div className="relative">
+        <div className="w-12 h-12 border-4 border-gray-200 dark:border-gray-700 rounded-full" />
+        <div className="w-12 h-12 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin absolute top-0 left-0" />
+      </div>
+      <p className="text-gray-600 dark:text-gray-400 text-sm mt-4">{text}</p>
     </div>
   );
 
   const Toast = ({ message, type, onClose }: { message: string; type: 'error' | 'success'; onClose: () => void }) => (
-    <div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg flex items-center space-x-3 max-w-md animate-slide-up ${
-      type === 'error' ? 'bg-red-900 border border-red-700' : 'bg-green-900 border border-green-700'
+    <div className={`fixed bottom-4 right-4 p-4 rounded-xl shadow-2xl flex items-center space-x-3 max-w-md animate-slide-up ${
+      type === 'error' ? 'bg-white dark:bg-red-900 border border-red-200 dark:border-red-700' : 'bg-white dark:bg-green-900 border border-green-200 dark:border-green-700'
     }`}>
       <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-        type === 'error' ? 'bg-red-800' : 'bg-green-800'
+        type === 'error' ? 'bg-red-100 dark:bg-red-800' : 'bg-green-100 dark:bg-green-800'
       }`}>
         {type === 'error' ? (
-          <AlertTriangle className="w-4 h-4 text-red-400" />
+          <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />
         ) : (
-          <CheckCircle className="w-4 h-4 text-green-400" />
+          <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />
         )}
       </div>
-      <p className="flex-1 text-sm text-white">{message}</p>
+      <p className="flex-1 text-sm text-gray-900 dark:text-white">{message}</p>
       <button
         onClick={onClose}
-        className="text-gray-400 hover:text-white"
+        className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors duration-200"
       >
         ×
       </button>
@@ -526,20 +538,25 @@ const Blindspots = () => {
     const confidence = data?.confidence || 0;
     const apiSource = data?.apiSource || 'unknown';
     const explanation = signalExplanations[signal as keyof typeof signalExplanations];
+    const isFailed = apiSource === 'failed';
 
     return (
       <div 
         id={`signal-indicator-${signal}`} 
-        className="bg-gray-800 p-3 rounded-lg border border-gray-700 relative"
+        className={`p-3 rounded-lg border relative ${
+          isFailed 
+            ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-800' 
+            : 'bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-700'
+        }`}
         onMouseEnter={() => setHoveredSignal(signal)}
         onMouseLeave={() => setHoveredSignal(null)}
       >
         <div id={`signal-indicator-${signal}-header`} className="flex justify-between items-center mb-2">
           <div className="flex items-center space-x-2">
-            <h4 id={`signal-indicator-${signal}-title`} className="text-sm font-semibold text-cyan-400 capitalize">{signal.replace(/_/g, ' ')}</h4>
-            <HelpCircle className="w-3 h-3 text-gray-500 cursor-help" />
+            <h4 id={`signal-indicator-${signal}-title`} className="text-sm font-semibold text-cyan-600 dark:text-cyan-400 capitalize">{signal.replace(/_/g, ' ')}</h4>
+            <HelpCircle className="w-3 h-3 text-gray-400 dark:text-gray-500 cursor-help" />
           </div>
-          <span id={`signal-indicator-${signal}-confidence`} className="text-xs text-gray-400">{Math.round(confidence * 100)}%</span>
+          <span id={`signal-indicator-${signal}-confidence`} className="text-xs text-gray-600 dark:text-gray-400">{Math.round(confidence * 100)}%</span>
         </div>
 
         {/* Educational Tooltip */}
@@ -575,13 +592,13 @@ const Blindspots = () => {
 
         <div id={`signal-indicator-${signal}-indicators`} className="space-y-1">
           {indicators.map((indicator: any, idx: number) => (
-            <div key={idx} id={`signal-indicator-${signal}-item-${idx}`} className="text-xs text-gray-300 flex items-center">
-              <div id={`signal-indicator-${signal}-dot-${idx}`} className="w-2 h-2 bg-cyan-500 rounded-full mr-2" />
+            <div key={idx} id={`signal-indicator-${signal}-item-${idx}`} className="text-xs text-gray-700 dark:text-gray-300 flex items-center">
+              <div id={`signal-indicator-${signal}-dot-${idx}`} className="w-2 h-2 bg-cyan-600 dark:bg-cyan-500 rounded-full mr-2" />
               {String(indicator).replace(/[-_]/g, ' ')}
             </div>
           ))}
-          <div className="text-xs text-gray-500 mt-1">
-            API: {apiSource}
+          <div className="text-xs text-gray-600 dark:text-gray-500 mt-1">
+            {isFailed ? 'API Failed - Check Configuration' : `API: ${apiSource}`}
           </div>
         </div>
       </div>
@@ -589,18 +606,18 @@ const Blindspots = () => {
   };
 
   const AlertItem = ({ alert, index }: { alert: any; index: number }) => (
-    <div id={`alert-item-${index}`} className={`p-3 rounded-lg border-l-4 ${
-      alert.severity === 'high' ? 'border-red-500 bg-red-900/20' :
-      alert.severity === 'medium' ? 'border-yellow-500 bg-yellow-900/20' :
-      'border-blue-500 bg-blue-900/20'
+    <div id={`alert-item-${index}`} className={`p-4 rounded-xl border ${
+      alert.severity === 'high' ? 'border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20' :
+      alert.severity === 'medium' ? 'border-yellow-300 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20' :
+      'border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20'
     }`}>
       <div id={`alert-item-${index}-content`} className="flex justify-between items-start">
         <div id={`alert-item-${index}-details`}>
-          <h4 id={`alert-item-${index}-type`} className="text-sm font-medium text-white capitalize">{alert.type}</h4>
-          <p id={`alert-item-${index}-description`} className="text-xs text-gray-300 mt-1">{alert.description}</p>
-          <p className="text-xs text-gray-500 mt-1">Confidence: {Math.round(alert.confidence * 100)}%</p>
+          <h4 id={`alert-item-${index}-type`} className="text-sm font-medium text-gray-900 dark:text-white capitalize">{alert.type}</h4>
+          <p id={`alert-item-${index}-description`} className="text-xs text-gray-700 dark:text-gray-300 mt-1">{alert.description}</p>
+          <p className="text-xs text-gray-600 dark:text-gray-500 mt-1">Confidence: {Math.round(alert.confidence * 100)}%</p>
         </div>
-        <span id={`alert-item-${index}-timestamp`} className="text-xs text-gray-400">{alert.timestamp}</span>
+        <span id={`alert-item-${index}-timestamp`} className="text-xs text-gray-600 dark:text-gray-400">{alert.timestamp}</span>
       </div>
     </div>
   );
@@ -608,30 +625,42 @@ const Blindspots = () => {
   // Show loading screen during initialization
   if (isInitializing) {
     return (
-      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
-        <LoadingSpinner text="Initializing Blindspots services..." />
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
+        <div className="text-center">
+          <div className="mb-8">
+            <div className="w-20 h-20 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-2xl mx-auto">
+              <Eye className="w-12 h-12 text-white" />
+            </div>
+          </div>
+          <LoadingSpinner text="Initializing Blindspots services..." />
+        </div>
       </div>
     );
   }
 
   return (
-    <div id="blindspots-app-container" className="min-h-screen bg-gray-900 text-white">
+    <div id="blindspots-app-container" className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white">
       {/* Header with enhanced connection status */}
-      <header id="app-header" className="bg-black border-b border-gray-800 p-4">
-        <div id="app-header-content" className="flex justify-between items-center">
+      <header id="app-header" className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shadow-sm">
+        <div id="app-header-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
           <div id="app-header-brand" className="flex items-center space-x-3">
-            <div id="app-header-logo" className="w-8 h-8 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center">
-              <Eye className="w-5 h-5" />
+            <div id="app-header-logo" className="w-10 h-10 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center shadow-md">
+              <Eye className="w-6 h-6 text-white" />
             </div>
             <div id="app-header-title-group">
-              <h1 id="app-header-title" className="text-lg lg:text-xl font-bold">Blindspots</h1>
-              <p id="app-header-subtitle" className="text-xs text-gray-400 hidden sm:block">APOLLO CONFIG | Revealing Hidden Patterns</p>
+              <h1 id="app-header-title" className="text-xl lg:text-2xl font-bold text-gray-900 dark:text-white">Blindspots</h1>
+              <p id="app-header-subtitle" className="text-sm text-gray-500 dark:text-gray-400 hidden sm:block">Advanced Behavioral Analysis Platform</p>
             </div>
           </div>
           
           {/* Connection Status Panel */}
           <div id="connection-status-panel" className="flex items-center space-x-4 text-gray-400">
-            <Settings id="app-header-settings-btn" className="w-5 h-5 cursor-pointer hover:text-cyan-400" />
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
+            >
+              <Settings className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            </button>
             <button
               onClick={() => setShowMobileSidebar(!showMobileSidebar)}
               className="lg:hidden p-2 hover:bg-gray-800 rounded"
@@ -642,22 +671,22 @@ const Blindspots = () => {
         </div>
       </header>
 
-      <div id="app-main-layout" className="flex flex-col lg:flex-row">
+      <div id="app-main-layout" className="flex flex-col lg:flex-row max-w-7xl mx-auto">
         {/* Enhanced Sidebar */}
         <aside id="app-sidebar" className={`${
           showMobileSidebar ? 'block' : 'hidden'
-        } lg:block w-full lg:w-64 bg-gray-800 border-b lg:border-b-0 lg:border-r border-gray-700 p-4`}>
-          <div id="app-sidebar-content" className="space-y-4">
+        } lg:block w-full lg:w-72 bg-white dark:bg-gray-900 border-b lg:border-b-0 lg:border-r border-gray-200 dark:border-gray-800 p-6 lg:min-h-screen`}>
+          <div id="app-sidebar-content" className="space-y-6">
             
             {/* Analysis Mode Section */}
             <div id="analysis-mode-section">
-              <h3 id="analysis-mode-title" className="text-sm font-semibold text-gray-300 mb-3">Analysis Mode</h3>
+              <h3 id="analysis-mode-title" className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Analysis Mode</h3>
               <div id="analysis-mode-buttons" className="space-y-2">
                 <button
                   id="live-analysis-mode-btn"
                   onClick={() => handleModeChange('live')}
-                  className={`w-full p-3 rounded-lg flex items-center space-x-3 ${
-                    activeMode === 'live' ? 'bg-cyan-600' : 'bg-gray-700 hover:bg-gray-600'
+                  className={`w-full p-4 rounded-xl flex items-center space-x-3 transition-all duration-200 ${
+                    activeMode === 'live' ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg transform scale-105' : 'bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 hover:shadow-md'
                   }`}
                 >
                   <Camera className="w-4 h-4" />
@@ -666,8 +695,8 @@ const Blindspots = () => {
                 <button
                   id="upload-analysis-mode-btn"
                   onClick={() => handleModeChange('upload')}
-                  className={`w-full p-3 rounded-lg flex items-center space-x-3 ${
-                    activeMode === 'upload' ? 'bg-cyan-600' : 'bg-gray-700 hover:bg-gray-600'
+                  className={`w-full p-4 rounded-xl flex items-center space-x-3 transition-all duration-200 ${
+                    activeMode === 'upload' ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg transform scale-105' : 'bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 hover:shadow-md'
                   }`}
                 >
                   <Upload className="w-4 h-4" />
@@ -679,7 +708,7 @@ const Blindspots = () => {
             {/* Enhanced Context Preset Section */}
             <div id="context-preset-section">
               <div className="flex justify-between items-center mb-3">
-                <h3 id="context-preset-title" className="text-sm font-semibold text-gray-300">Analysis Scenario</h3>
+                <h3 id="context-preset-title" className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Analysis Scenario</h3>
                 <button
                   onClick={() => setShowScenarioDetails(!showScenarioDetails)}
                   className="text-cyan-400 hover:text-cyan-300 transition-colors"
@@ -692,7 +721,7 @@ const Blindspots = () => {
                 id="context-preset-select"
                 value={contextPreset}
                 onChange={(e) => setContextPreset(e.target.value)}
-                className="w-full p-2 bg-gray-700 border border-gray-600 rounded-lg text-sm mb-2"
+                className="w-full p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm mb-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all duration-200"
               >
                 {contextPresets.map(preset => (
                   <option key={preset.id} value={preset.id}>
@@ -718,10 +747,10 @@ const Blindspots = () => {
             )}
             
             {analysisData && analysisData.trustVector > 0 && (
-              <div id="trust-vector-section" className="bg-gray-700 p-3 rounded-lg">
+              <div id="trust-vector-section" className="bg-gradient-to-r from-cyan-50 to-blue-50 dark:from-cyan-900/20 dark:to-blue-900/20 p-4 rounded-xl border border-cyan-200 dark:border-cyan-800">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-300">Confidence</span>
-                  <span className="text-lg font-bold text-cyan-400">{Math.round(analysisData.trustVector * 100)}%</span>
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Analysis Confidence</span>
+                  <span className="text-2xl font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent">{Math.round(analysisData.trustVector * 100)}%</span>
                 </div>
               </div>
             )}
@@ -730,7 +759,7 @@ const Blindspots = () => {
             <div>
               <button
                 onClick={() => setShowSettings(!showSettings)}
-                className="w-full bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg text-sm flex items-center justify-center space-x-2 transition-all"
+                className="w-full bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700 px-4 py-3 rounded-xl text-sm font-medium flex items-center justify-center space-x-2 transition-all duration-200 shadow-sm hover:shadow-md"
               >
                 <Settings className="w-4 h-4" />
                 <span>Settings</span>
@@ -740,14 +769,14 @@ const Blindspots = () => {
         </aside>
 
         {/* Main Content Area - New Layout with Cohesive Report */}
-        <main id="app-main-content" className="flex-1 p-4 lg:p-6">
-          <div id="main-content-grid" className="grid grid-cols-1 lg:grid-cols-4 gap-4 lg:gap-6">
+        <main id="app-main-content" className="flex-1 p-6 lg:p-8 bg-gray-50 dark:bg-gray-950">
+          <div id="main-content-grid" className="grid grid-cols-1 xl:grid-cols-3 gap-6">
             
-            {/* Video Feed Section - Reduced to 1 column */}
-            <section id="video-feed-section" className="lg:col-span-1">
-              <div id="video-feed-container" className="bg-gray-800 rounded-lg p-4">
-                <div id="video-feed-header" className="flex justify-between items-center mb-4">
-                  <h2 id="video-feed-title" className="text-sm font-semibold">
+            {/* Video Feed Section */}
+            <section id="video-feed-section" className="xl:col-span-2">
+              <div id="video-feed-container" className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl overflow-hidden">
+                <div id="video-feed-header" className="flex justify-between items-center p-6 pb-4">
+                  <h2 id="video-feed-title" className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                     {activeMode === 'live' ? 'Live Feed' : 'Upload'}
                   </h2>
                   <div id="video-feed-controls" className="flex space-x-1">
@@ -756,7 +785,7 @@ const Blindspots = () => {
                         id="start-analysis-btn"
                         onClick={startAnalysis}
                         disabled={isProcessingFile}
-                        className="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed px-2 py-1 rounded text-xs flex items-center space-x-1"
+                        className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed px-4 py-2 rounded-lg text-sm font-medium text-white flex items-center space-x-2 shadow-md transition-all duration-200"
                       >
                         <Play className="w-3 h-3" />
                         <span>Start</span>
@@ -765,7 +794,7 @@ const Blindspots = () => {
                       <button
                         id="stop-analysis-btn"
                         onClick={stopAnalysis}
-                        className="bg-red-600 hover:bg-red-700 px-2 py-1 rounded text-xs flex items-center space-x-1"
+                        className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 px-4 py-2 rounded-lg text-sm font-medium text-white flex items-center space-x-2 shadow-md transition-all duration-200"
                       >
                         <Pause className="w-3 h-3" />
                         <span>Stop</span>
@@ -774,7 +803,7 @@ const Blindspots = () => {
                   </div>
                 </div>
                 
-                <div id="video-display" className="bg-gray-900 rounded-lg aspect-video flex items-center justify-center relative overflow-hidden min-h-[200px]">
+                <div id="video-display" className="bg-gray-100 dark:bg-gray-950 aspect-video flex items-center justify-center relative overflow-hidden">
                   {activeMode === 'live' ? (
                     <>
                       <video
@@ -785,10 +814,10 @@ const Blindspots = () => {
                         className="w-full h-full object-cover"
                       />
                       {!cameraStream && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-gray-900/80">
+                        <div className="absolute inset-0 flex items-center justify-center bg-gray-100/80 dark:bg-gray-900/80">
                           <div className="text-center">
-                            <Camera className="w-8 h-8 text-gray-600 mx-auto mb-2" />
-                            <p className="text-xs text-gray-400">Initializing...</p>
+                            <Camera className="w-12 h-12 text-gray-400 dark:text-gray-600 mx-auto mb-3" />
+                            <p className="text-sm text-gray-600 dark:text-gray-400">Camera initializing...</p>
                           </div>
                         </div>
                       )}
@@ -818,8 +847,8 @@ const Blindspots = () => {
                       </div>
                     ) : (
                       <div className="text-center">
-                        <Upload className="w-8 h-8 text-gray-600 mx-auto mb-2" />
-                        <p className="text-xs text-gray-400 mb-2">Upload media</p>
+                        <Upload className="w-12 h-12 text-gray-400 dark:text-gray-600 mx-auto mb-3" />
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Drag & drop or click to upload</p>
                         <input 
                           ref={fileInputRef}
                           type="file" 
@@ -829,7 +858,7 @@ const Blindspots = () => {
                         />
                         <button 
                           onClick={() => fileInputRef.current?.click()}
-                          className="bg-cyan-600 hover:bg-cyan-700 px-2 py-1 rounded text-xs"
+                          className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 px-4 py-2 rounded-lg text-sm font-medium text-white shadow-md transition-all duration-200"
                         >
                           Select File
                         </button>
@@ -839,19 +868,91 @@ const Blindspots = () => {
                   
                   {/* Recording Indicator */}
                   {isAnalyzing && (
-                    <div className="absolute top-2 left-2 bg-red-600 px-2 py-1 rounded text-xs font-semibold animate-pulse">
+                    <div className="absolute top-4 left-4 bg-red-600 px-3 py-1.5 rounded-full text-xs font-semibold animate-pulse flex items-center gap-2">
                       ● LIVE
                     </div>
                   )}
                 </div>
+
+                {/* API Error Warning */}
+                {analysisData && Object.values(analysisData.signals).some(signal => signal?.apiSource === 'failed') && (
+                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-800 rounded-xl p-4 mb-6">
+                    <div className="flex items-center space-x-3">
+                      <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400" />
+                      <div>
+                        <h4 className="text-sm font-semibold text-red-900 dark:text-red-200">API Analysis Failed</h4>
+                        <p className="text-xs text-red-700 dark:text-red-300 mt-1">
+                          Some analysis features failed due to API errors. Please check your API keys in the .env file.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Signal Analysis Section */}
+                {analysisData && (
+                  <div id="signal-analysis-section" className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl p-6">
+                    <div className="flex justify-between items-center mb-6">
+                      <h3 id="signal-analysis-title" className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
+                        <TrendingUp className="w-5 h-5 mr-2 text-cyan-500" />
+                        Signal Analysis
+                      </h3>
+                      <button
+                        onClick={generateForensicReport}
+                        className="bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 px-4 py-2 rounded-lg text-sm font-medium text-white flex items-center space-x-2 shadow-md transition-all duration-200"
+                      >
+                        <FileText className="w-4 h-4" />
+                        <span>Generate Report</span>
+                      </button>
+                    </div>
+                    <div id="signal-analysis-indicators" className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {Object.entries(analysisData.signals).map(([signal, data]) => (
+                        <SignalIndicator key={signal} signal={signal} data={data} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Export Options */}
+                {analysisData && (
+                  <div id="export-section" className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl p-6">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                      <Download className="w-5 h-5 mr-2 text-green-500" />
+                      Export Options
+                    </h3>
+                    <div className="grid grid-cols-3 gap-3">
+                      <button
+                        onClick={() => exportAnalysisData('json')}
+                        className="bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 border border-blue-200 dark:border-blue-800 p-3 rounded-xl text-center transition-all duration-200"
+                      >
+                        <FileText className="w-5 h-5 mx-auto mb-1 text-blue-600 dark:text-blue-400" />
+                        <div className="text-sm font-medium text-gray-900 dark:text-white">JSON</div>
+                      </button>
+                      <button
+                        onClick={() => exportAnalysisData('csv')}
+                        className="bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 border border-green-200 dark:border-green-800 p-3 rounded-xl text-center transition-all duration-200"
+                      >
+                        <FileSpreadsheet className="w-5 h-5 mx-auto mb-1 text-green-600 dark:text-green-400" />
+                        <div className="text-sm font-medium text-gray-900 dark:text-white">CSV</div>
+                      </button>
+                      <button
+                        onClick={() => exportAnalysisData('pdf')}
+                        className="bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-200 dark:border-red-800 p-3 rounded-xl text-center transition-all duration-200"
+                      >
+                        <FileText className="w-5 h-5 mx-auto mb-1 text-red-600 dark:text-red-400" />
+                        <div className="text-sm font-medium text-gray-900 dark:text-white">PDF</div>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </section>
 
-            {/* Cohesive Report Section - Main Center Area */}
-            <section id="cohesive-report-section" className="lg:col-span-2">
-              <div className="space-y-4">
+            {/* Analysis Results Section */}
+            <section id="analysis-results-section" className="xl:col-span-1">
+              <div className="space-y-6">
                 {/* Cohesive Report */}
-                <div className="h-96">
+                <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl p-6 h-full">
                   <CohesiveReport 
                     analysisData={analysisData || {
                       timestamp: Date.now(),
@@ -871,21 +972,21 @@ const Blindspots = () => {
 
                 {/* Timeline Below Report */}
                 {analysisData && (
-                  <div id="analysis-timeline-section" className="bg-gray-800 rounded-lg p-4">
-                    <h3 id="analysis-timeline-title" className="text-sm font-semibold text-gray-300 mb-3">Analysis Timeline</h3>
-                    <div id="analysis-timeline-container" className="bg-gray-900 p-3 rounded-lg max-h-40 overflow-y-auto">
+                  <div id="analysis-timeline-section" className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl p-6">
+                    <h3 id="analysis-timeline-title" className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Analysis Timeline</h3>
+                    <div id="analysis-timeline-container" className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700">
                       <div id="analysis-timeline-events" className="space-y-2">
                         {analysisData.timeline.map((event: any, idx: number) => (
                           <div key={idx} id={`timeline-event-${idx}`} className="flex justify-between items-center text-sm">
                             <div id={`timeline-event-${idx}-info`} className="flex items-center space-x-3">
-                              <span id={`timeline-event-${idx}-time`} className="text-gray-400 font-mono text-xs">{event.time}</span>
-                              <span id={`timeline-event-${idx}-description`} className="text-white text-xs">{event.event}</span>
-                              <span className="text-xs text-cyan-400">({event.apiCall})</span>
+                              <span id={`timeline-event-${idx}-time`} className="text-gray-600 dark:text-gray-400 font-mono text-xs">{event.time}</span>
+                              <span id={`timeline-event-${idx}-description`} className="text-gray-900 dark:text-white text-xs">{event.event}</span>
+                              <span className="text-xs text-cyan-600 dark:text-cyan-400">({event.apiCall})</span>
                             </div>
                             <span id={`timeline-event-${idx}-confidence`} className={`text-xs px-1 py-0.5 rounded ${
-                              event.confidence > 0.85 ? 'bg-green-900 text-green-300' :
-                              event.confidence > 0.7 ? 'bg-yellow-900 text-yellow-300' :
-                              'bg-red-900 text-red-300'
+                              event.confidence > 0.85 ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300' :
+                              event.confidence > 0.7 ? 'bg-yellow-100 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-300' :
+                              'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300'
                             }`}>
                               {Math.round(event.confidence * 100)}%
                             </span>
@@ -898,12 +999,12 @@ const Blindspots = () => {
               </div>
             </section>
 
-            {/* Enhanced Analysis Panel */}
-            <aside id="analysis-panel" className="space-y-6">
+            {/* Quick Actions Section - Hidden for now */}
+            <aside id="quick-actions" className="hidden space-y-6">
               
               {/* Signal Analysis with API sources */}
               {analysisData && (
-                <section id="signal-analysis-section" className="bg-gray-800 p-4 rounded-lg">
+                <section id="signal-analysis-section" className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
                   <div className="flex justify-between items-center mb-4">
                     <h3 id="signal-analysis-title" className="text-lg font-semibold flex items-center">
                       <TrendingUp className="w-5 h-5 mr-2 text-cyan-400" />
@@ -927,7 +1028,7 @@ const Blindspots = () => {
 
               {/* Enhanced Alerts */}
               {analysisData && analysisData.alerts.length > 0 && (
-                <section id="alerts-section" className="bg-gray-800 p-4 rounded-lg">
+                <section id="alerts-section" className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
                   <h3 id="alerts-title" className="text-lg font-semibold mb-4 flex items-center">
                     <AlertTriangle className="w-5 h-5 mr-2 text-yellow-400" />
                     Active Alerts
@@ -942,7 +1043,7 @@ const Blindspots = () => {
 
               {/* Export Options */}
               {analysisData && (
-                <section id="export-section" className="bg-gray-800 p-4 rounded-lg">
+                <section id="export-section" className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
                   <h3 className="text-lg font-semibold mb-4 flex items-center">
                     <Download className="w-5 h-5 mr-2 text-green-400" />
                     Export Options
@@ -996,15 +1097,15 @@ const Blindspots = () => {
       {/* Learning Resources Panel */}
       {showLearningPanel && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center p-6 border-b border-gray-700">
-              <h2 className="text-xl font-bold text-white flex items-center">
+          <div className="bg-white dark:bg-gray-800 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center">
                 <BookOpen className="w-6 h-6 mr-2 text-cyan-400" />
                 Learning Resources
               </h2>
               <button
                 onClick={() => setShowLearningPanel(false)}
-                className="text-gray-400 hover:text-white transition-colors"
+                className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
               >
                 ✕
               </button>
@@ -1021,9 +1122,9 @@ const Blindspots = () => {
                   </h3>
                   <div className="space-y-3">
                     {learningResources.faqs.map((faq, idx) => (
-                      <div key={idx} className="bg-gray-700 p-4 rounded-lg">
-                        <h4 className="text-sm font-semibold text-white mb-2">{faq.question}</h4>
-                        <p className="text-xs text-gray-300 leading-relaxed">{faq.answer}</p>
+                      <div key={idx} className="bg-gray-100 dark:bg-gray-700 p-4 rounded-lg">
+                        <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">{faq.question}</h4>
+                        <p className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed">{faq.answer}</p>
                       </div>
                     ))}
                   </div>
@@ -1037,10 +1138,10 @@ const Blindspots = () => {
                   </h3>
                   <div className="space-y-2">
                     {learningResources.bestPractices.map((practice, idx) => (
-                      <div key={idx} className="bg-gray-700 p-3 rounded-lg">
+                      <div key={idx} className="bg-gray-100 dark:bg-gray-700 p-3 rounded-lg">
                         <div className="flex items-start">
                           <div className="w-2 h-2 bg-green-400 rounded-full mt-2 mr-3 flex-shrink-0" />
-                          <p className="text-xs text-gray-300 leading-relaxed">{practice}</p>
+                          <p className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed">{practice}</p>
                         </div>
                       </div>
                     ))}
@@ -1055,10 +1156,10 @@ const Blindspots = () => {
                   </h3>
                   <div className="space-y-2">
                     {learningResources.quickTips.map((tip, idx) => (
-                      <div key={idx} className="bg-gray-700 p-3 rounded-lg">
+                      <div key={idx} className="bg-gray-100 dark:bg-gray-700 p-3 rounded-lg">
                         <div className="flex items-start">
                           <div className="w-2 h-2 bg-yellow-400 rounded-full mt-2 mr-3 flex-shrink-0" />
-                          <p className="text-xs text-gray-300 leading-relaxed">{tip}</p>
+                          <p className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed">{tip}</p>
                         </div>
                       </div>
                     ))}
@@ -1096,12 +1197,12 @@ const Blindspots = () => {
       {/* Settings Modal */}
       {showSettings && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 rounded-lg p-4 sm:p-6 w-full max-w-md max-h-[80vh] overflow-y-auto">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-4 sm:p-6 w-full max-w-md max-h-[80vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold text-white">Settings</h2>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Settings</h2>
               <button
                 onClick={() => setShowSettings(false)}
-                className="text-gray-400 hover:text-white"
+                className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
               >
                 ×
               </button>
@@ -1109,7 +1210,7 @@ const Blindspots = () => {
 
             {/* API Status */}
             <div className="mb-6">
-              <h3 className="text-sm font-semibold text-gray-300 mb-3">API Status</h3>
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">API Status</h3>
               <div className="space-y-2">
                 {Object.entries(apiStatus).map(([api, connected]) => (
                   <div key={api} className="flex justify-between items-center text-xs">
@@ -1120,13 +1221,18 @@ const Blindspots = () => {
               </div>
             </div>
 
+            {/* Environment Debug */}
+            <div className="mb-6">
+              <EnvDebug />
+            </div>
+
             {/* Advanced Features */}
             <div className="mb-6">
-              <h3 className="text-sm font-semibold text-gray-300 mb-3">Advanced Features</h3>
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Advanced Features</h3>
               
               {/* Text Analysis Mode */}
               <div className="flex items-center justify-between mb-4">
-                <span className="text-xs text-gray-400">Text-only analysis</span>
+                <span className="text-xs text-gray-600 dark:text-gray-400">Text-only analysis</span>
                 <button
                   onClick={() => setShowTextMode(!showTextMode)}
                   className={`w-10 h-5 rounded-full transition-colors ${
@@ -1141,11 +1247,11 @@ const Blindspots = () => {
 
               {/* Cultural Context */}
               <div className="mb-4">
-                <label className="text-xs text-gray-400 block mb-2">Cultural Context</label>
+                <label className="text-xs text-gray-600 dark:text-gray-400 block mb-2">Cultural Context</label>
                 <select
                   value={culturalContext}
                   onChange={(e) => setCulturalContext(e.target.value)}
-                  className="w-full p-2 bg-gray-600 border border-gray-500 rounded text-xs text-white"
+                  className="w-full p-2 bg-gray-100 dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded text-xs text-gray-900 dark:text-white"
                 >
                   <option value="western">Western</option>
                   <option value="eastern">Eastern</option>
@@ -1173,7 +1279,7 @@ const Blindspots = () => {
 
             {/* Export & Integration */}
             <div>
-              <h3 className="text-sm font-semibold text-gray-300 mb-3">Export & Integration</h3>
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Export & Integration</h3>
               <div className="space-y-2">
                 <button 
                   onClick={generateForensicReport}
@@ -1197,19 +1303,33 @@ const Blindspots = () => {
                 </button>
               </div>
             </div>
+
+            {/* Troubleshooting */}
+            <div className="mt-4 pt-4 border-t border-gray-700">
+              <button
+                onClick={() => {
+                  setShowCameraTest(true);
+                  setShowSettings(false);
+                }}
+                className="w-full bg-yellow-600 hover:bg-yellow-700 p-2 rounded text-sm flex items-center justify-center space-x-2"
+              >
+                <Camera className="w-4 h-4" />
+                <span>Test Camera Permissions</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {/* Text Analysis Input */}
       {showTextMode && (
-        <div className="fixed bottom-4 right-4 bg-gray-800 rounded-lg p-4 w-80 border border-gray-600">
-          <h3 className="text-sm font-semibold text-gray-300 mb-3">Text Analysis</h3>
+        <div className="fixed bottom-4 right-4 bg-white dark:bg-gray-800 rounded-lg p-4 w-80 border border-gray-200 dark:border-gray-600 shadow-lg">
+          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Text Analysis</h3>
           <textarea
             value={textBasedInput}
             onChange={(e) => setTextBasedInput(e.target.value)}
             placeholder="Describe body language cues..."
-            className="w-full h-20 p-2 bg-gray-700 border border-gray-600 rounded text-sm text-white placeholder-gray-400 resize-none"
+            className="w-full h-20 p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-sm text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 resize-none"
           />
           <button
             onClick={handleTextAnalysis}
@@ -1228,6 +1348,24 @@ const Blindspots = () => {
           report={forensicReport}
           onClose={() => setShowForensicReport(false)}
         />
+      )}
+
+      {/* Camera Test Modal */}
+      {showCameraTest && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Camera Permission Test</h2>
+              <button
+                onClick={() => setShowCameraTest(false)}
+                className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white text-2xl"
+              >
+                ×
+              </button>
+            </div>
+            <CameraTest />
+          </div>
+        </div>
       )}
       
       {/* Toast Notifications */}

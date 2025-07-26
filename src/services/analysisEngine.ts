@@ -1,7 +1,7 @@
 import { supabaseService } from './supabaseService';
 import { githubService } from './githubService';
 import { openaiService, anthropicService } from './aiServices';
-import { googleVisionService, googleVideoService } from './googleServices';
+import { googleVisionService, googleVideoService } from './googleServicesSecure';
 import { claudeCodeService } from './claudeCodeService';
 import { mediaService } from './mediaService';
 
@@ -54,6 +54,14 @@ class AnalysisEngine {
       googleVideoService.initialize(),
       claudeCodeService.initialize()
     ]);
+
+    // Log any initialization errors
+    results.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        const serviceName = ['Supabase', 'GitHub', 'OpenAI', 'Anthropic', 'Google Vision', 'Google Video', 'Claude Code'][index];
+        console.error(`❌ ${serviceName} initialization failed:`, result.reason);
+      }
+    });
 
     const status = {
       supabase: results[0].status === 'fulfilled' ? results[0].value : false,
@@ -180,7 +188,7 @@ class AnalysisEngine {
           });
         } catch (error) {
           console.warn('⚠️ Facial analysis failed, using fallback');
-          signals.facial_expression = { confidence: 0.85, indicators: ['micro-expressions', 'eye-contact-patterns'], apiSource: 'fallback' };
+          signals.facial_expression = { confidence: 0.0, indicators: ['api-error'], apiSource: 'failed' };
         }
       }
 
@@ -206,8 +214,8 @@ class AnalysisEngine {
             contextualNotes: 'Voice analysis indicates emotional state changes'
           });
         } catch (error) {
-          console.warn('⚠️ Vocal analysis failed, using fallback');
-          signals.voice_tone = { confidence: 0.72, indicators: ['pitch-variance', 'speech-rate'], apiSource: 'fallback' };
+          console.warn('⚠️ Vocal analysis failed');
+          signals.voice_tone = { confidence: 0.0, indicators: ['api-error'], apiSource: 'failed' };
         }
       }
 
@@ -251,7 +259,7 @@ class AnalysisEngine {
                 apiCall: 'google-vision-gesture-analysis' 
               });
             } catch (error) {
-              console.warn('⚠️ Gesture analysis failed, using fallback');
+              console.warn('⚠️ Gesture analysis failed');
               signals.gestures = {
                 confidence: posturalData.confidence * 0.9,
                 indicators: ['hand_movements', 'gesture_timing'],
@@ -280,9 +288,9 @@ class AnalysisEngine {
             contextualNotes: 'Subject shows increased engagement through body positioning'
           });
         } catch (error) {
-          console.warn('⚠️ Postural analysis failed, using fallback');
-          signals.posture = { confidence: 0.91, indicators: ['body-alignment', 'gesture-frequency'], apiSource: 'fallback' };
-          signals.gestures = { confidence: 0.88, indicators: ['hand_positions', 'gesture_timing'], apiSource: 'fallback', hasFullBody: false };
+          console.warn('⚠️ Postural analysis failed');
+          signals.posture = { confidence: 0.0, indicators: ['api-error'], apiSource: 'failed' };
+          signals.gestures = { confidence: 0.0, indicators: ['api-error'], apiSource: 'failed', hasFullBody: false };
         }
       }
 

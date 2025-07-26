@@ -1,0 +1,3 @@
+[env]
+# Google API key should be set as a Supabase secret, not stored in config files
+# Run: supabase secrets set GOOGLE_API_KEY=your-actual-api-key

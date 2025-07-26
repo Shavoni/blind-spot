@@ -125,6 +125,11 @@ class SupabaseService {
   get connected(): boolean {
     return this.isInitialized && this.client !== null;
   }
+
+  getClient(): SupabaseClient | null {
+    return this.client;
+  }
 }
 
 export const supabaseService = new SupabaseService();
+export const getSupabaseClient = () => supabaseService.getClient();
